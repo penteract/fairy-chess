@@ -143,8 +143,8 @@ toInt (src,dst) = 64*(toInt' src) + toInt' dst
 drawBoard = 
   intercalate "\n" . toList . t8map (toList . (t8map drawSquare)) . transpose
 
-whiteps = "♙♖♘♗♕♔"
-blackps = "♟︎♜♞♝♛♚"
+whiteps = ['♙','♖','♘','♗','♕','♔']
+blackps = ['♟','♜','♞','♝','♛','♚']
 drawSquare :: Square -> Char
 drawSquare Empty = ' '
 drawSquare (Occupied pl p) = case pl of

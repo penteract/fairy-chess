@@ -5,9 +5,8 @@ import Game.Chess.Fairy.BaseGame
 main :: IO ()
 main = do
     let s = emptyState
-    let s' = (innerRules doNothing) Start s
-    print (result s')
-    putStrLn (drawBoard $ board s')
+    let s' = (rSetLayout doNothing) Start s
+    putStrLn $ showState s'
     let loop s = do
           mv <- readLn
           let s' = innerRules doNothing (Move mv) s
