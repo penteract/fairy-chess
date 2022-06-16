@@ -1,0 +1,51 @@
+name:                fairy-chess
+version:             0.0.0.0
+-- synopsis:
+description:
+  A chess-like game in which rules can be added in a similar spirit to Bartok
+-- homepage:            http://3dox.uk eventually?
+license:             BSD3
+license-file:        LICENSE
+author:              Toby Cathcart Burn
+maintainer:          tcathcartburn@gmail.com
+-- copyright:
+-- category:
+build-type:          Simple
+-- extra-source-files:  README.md
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      Lib
+--  build-depends:       base >= 4 && < 5
+--  ghc-options:
+  exposed-modules:     Game.Chess.Fairy.Datatypes
+                      ,Game.Chess.Fairy.BaseGame
+                      ,Game.Chess.Fairy.Lib
+                      ,Game.Chess.Fairy.Utils
+--  other-extensions:    FlexibleContexts
+  build-depends:       base, containers, random
+
+  default-language:    Haskell2010
+
+executable server
+    hs-source-dirs:      App
+    main-is:             Game/Chess/Fairy/Main.hs
+    build-depends:       base, fairy-chess
+--                         bytestring,
+--                         warp, wai, http-types, ctrie, hint
+--, regex-compat,
+--                         lens, transformers, mtl,
+--                         containers, random, text,
+--                         time
+--    other-modules:       Game.Bartok.Serialize, Game.Bartok.ServerInterface, Game.Bartok.Whitelist
+    default-language:    Haskell2010
+
+
+
+-- test-suite tests
+--   type: exitcode-stdio-1.0
+--   main-is: Tests.hs
+--   build-depends: base,lens,random-shuffle, transformers, containers, random, Bartok, split, text, case-insensitive
+--   default-language:    Haskell2010
+--   other-modules: Lib,Sample,DataTypes
+--   hs-source-dirs: test

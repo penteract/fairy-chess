@@ -1,0 +1,73 @@
+How to implement piece movement rules so that a new rule for one kind of piece does override n inner rule for the same piece, but doesn't override the behaviour of different pieces and check detection still works and checkmate detection works efficiently?
+
+setMovement :: Piece -> MoveDesc -> Rule
+addMovement :: Piece -> MoveDesc -> Rule
+
+ideas:
+
+Similar general structure to Bartok (Rule = (Ev->GS->GS)->Ev->GS->GS), have the state contain various details to help with processing:
+  , pieceMoved :: Bool -- If true on the way down, it indicates that an outer rule has moved a piece.
+  -- Should be set to True on the way down, gets set to False at the bottom and should be False all the way up.
+  , checkingPlayer :: T8 (T8 Bool) -- Is the game a win or a draw if the opponent has no legal moves? should be set on the way up (set to False at the bottom)
+  , checkingOpponent :: T8 (T8 Bool) -- List of positions delivering check to the player who just moved. If this is non-empty, the move is illegal.
+  , lastMoveLegal :: Bool -- Should be ignored on the way down and set to False on the way up if there's a problem (other than being in check)
+
+
+
+server/outermost rule must:
+  confirm that the list of checks is empty
+  If the move is illegal, 
+  try all possible moves for the next player. If none are legal, the game is over.
+    possibly inspect
+
+data Result = Win | Draw -- win for player who just played
+
+(^&&^) = liftA2 (&&)
+
+isLegal :: GS -> Bool
+isLegal = lastMoveLegal ^&&^ (null . opponentChecks)
+
+handleMove :: Game -> Event -> GS -> Either Result GS -- 
+handleMove act e gs = let result = act e gs in
+  if isLegal result
+    then if any isLegal [act (Move (src,dst)) result | src<-allpos,dst<-allpos] 
+      then Right result else if null (playerChecks result) then Draw else Win
+
+Pros:
+gives rules quite a lot of flexibility
+Cons:
+performance concerns - This might get as bad as numRules*(64^4) since checks for all possible opposing moves.
+  Intelligent helper functions may ameliorate this, although since every legal move goes all the way down and up again
+  lazy map for checking?
+Rules that aren't careful or interact interestingly could easily lead to incorrect check detection which may cause an unlosable gamestate.
+  Failing to respect "hasMoved" would certainly cause problems
+castling through check still doesn't work smoothly - I don't see how to consider outer rules that would give check.
+
+Alternatives:
+
+Give rules more chances to do things
+ - have a particular kind of event that tells rules it only cares about moves that win the game (ie capture a king)
+ - allow rules to invoke this event on the whole ruleset when processing a regular move (although they shouldn't do it too often)
+
+List legal moves (and their results) rather than 
+ - memory usage?
+ - this is a similar amount of work to 
+ - if king-capturing moves are considered legal regardless of
+ - I think this has problems
+
+
+Just win by capturing the king, no check or checkmate rules (still needs something )
+ - Could do a full "for all moves by A, there exists a winning move by B" search, embracing the 64^4 (=2^24)
+   - that search could be optimised by ordering B's moves based on how frequently they won in prior runs
+ - not castling through is still tricky to implement
+
+ - to deal with castling, have a peekResult component of gamestate
+
+server/outermost rule must
+ - try possible moves for the next player. If one is winning, this move is illegal
+   - If all are illegal or allow the current player to win next turn, this move is a stalemate or a win by checkmate depending on the result of a null move.
+ - Should record a legal move (ideally randomly)
+
+ could define Game as follows, so that a move which uses peekResult cannot be winning
+ Game = Event -> GS -> Either GS ((Event -> GS -> Result)->GSNotWinning)
+ 
