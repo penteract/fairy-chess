@@ -12,20 +12,26 @@ initialLayout =
     let p8 = eight Pawn
         e8 = eight Empty
         backrank = (Rook,Knight,Bishop,Queen,King,Bishop,Knight,Rook)
-        white = Occupied White
-        black = Occupied Black in
-    transpose
-    (t8map white backrank
-    ,t8map white p8
-    ,e8,e8,e8,e8
-    ,t8map black p8
-    ,t8map black backrank)
+    in transpose
+      (t8map (Occupied White) backrank
+      ,t8map (Occupied White) p8
+      ,e8,e8,e8,e8
+      ,t8map (Occupied Black) p8
+      ,t8map (Occupied Black) backrank)
 
 doNothing :: Game
 doNothing event gs = gs
 
 changeTurn :: Step
-changeTurn gs = gs{turn=other (turn gs),pieceMoved=False}
+changeTurn gs = gs{turn=other (turn gs)}
+
+
+-- |The center of a ruleset - the whole game should be (outerRules . playersRules . innerRules) center
+-- changes who's turn it is and sets pieceMoved to False
+center :: Game
+center Start gs = gs{pieceMoved=False}
+center mv gs = (changeTurn gs){pieceMoved=False}
+
 rNoMoveIllegal :: Rule -- If no outer rule has set `pieceMoved`, the attempted move is illegal
 rNoMoveIllegal = when (isMove ~&~ (\ _ _ -> not.pieceMoved)) rIllegal
 rSetLayout :: Rule
@@ -67,7 +73,7 @@ rKingMoves = trackMoved $
   . setMoves King (leaper (reflections [(0,1),(1,1)]))
 
 innerRules :: Rule
-innerRules = rKingMoves . rPawnMoves . rKnightMoves . rQueenMoves . rRookMoves . rBishopMoves . rSetLayout. rNoMoveIllegal . doAfter changeTurn
+innerRules = rKingMoves . rPawnMoves . rKnightMoves . rQueenMoves . rRookMoves . rBishopMoves . rSetLayout. rNoMoveIllegal
 
 outerRules :: Rule
 outerRules = rCheckmate . rNoKingMeansWin
@@ -82,8 +88,8 @@ rCheckmate inner e gs =
         withPeek e gs = inner e gs{peekResult = Just (((.).(.)) result noPeek)}
         r = withPeek e gs
         in if result r /= Continue then r
-        else let ply1 = filter ((Illegal /=).result.fst) [(withPeek (Move m) gs, m) | m <- allMoves] in
-            if any (\(_,m) -> result (noPeek (Move m) gs) == Win) ply1 then r{result=Illegal}  -- noPeek is used to test the result, so that if we thought a move was legal, it is still considered legal
+        else let ply1 = filter ((Illegal /=).result.fst) [(withPeek (Move m) r, m) | m <- allMoves] in
+            if any (\(_,m) -> result (noPeek (Move m) r) == Win) ply1 then r{result=Illegal}  -- noPeek is used to test the result, so that if we thought a move was legal, it is still considered legal
               else if any ((Draw==).result.fst) ply1 then r
                 else case forcedWin noPeek ply1 allMoves of
                   Nothing -> r{result=Win} -- This covers the case where the opponent has no legal moves TODO: consider draws - allow a null move event?
@@ -97,4 +103,4 @@ forcedWin noPeek [] mvs = Nothing
 
 rNoKingMeansWin :: Rule
 rNoKingMeansWin inner e gs = let r = inner e gs in
-    if Occupied (turn r) King `elem` (toList (board r) >>= toList) then r else r{result=Win}
+    if result r /= Continue || Occupied (turn r) King `elem` (toList (board r) >>= toList) then r else r{result=Win}

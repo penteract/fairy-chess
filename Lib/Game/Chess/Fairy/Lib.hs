@@ -126,10 +126,10 @@ addCondition cond desc mv gs = cond mv gs && desc mv gs
 (^^||^^) = liftA2 $ liftA2 (||)
 
 capturing :: MoveDesc
-capturing (src,dst) gs = getAt dst gs == Empty
+capturing (src,dst) gs = getAt dst gs /= Empty
 
 nonCapturing :: MoveDesc
-nonCapturing (src,dst) gs = getAt dst gs /= Empty
+nonCapturing (src,dst) gs = getAt dst gs == Empty
 
 unmoved :: MoveDesc
 unmoved (src,dst) gs = readVar ("moved"++show src) gs == 0

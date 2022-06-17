@@ -69,6 +69,8 @@ transpose ((a1,a2,a3,a4,a5,a6,a7,a8)
                                        ,(a7,b7,c7,d7,e7,f7,g7,h7)
                                        ,(a8,b8,c8,d8,e8,f8,g8,h8))
 
+revt8 :: T8 a -> T8 a
+revt8 (a,b,c,d,e,f,g,h) = (h,g,f,e,d,c,b,a)
 
 type File = T8 Square
 type Board = T8 File
@@ -86,7 +88,7 @@ set (file,rank) sq board =
 type Move = (BoardPos,BoardPos)
 
 middle :: Move -> BoardPos
-middle ((sf,sr),(df,dr)) = (toEnum (fromEnum sf + fromEnum df `div` 2), toEnum (fromEnum sr + fromEnum dr `div` 2))
+middle ((sf,sr),(df,dr)) = (toEnum ((fromEnum sf + fromEnum df) `div` 2), toEnum ((fromEnum sr + fromEnum dr) `div` 2))
 
 data Event = Start | Move Move deriving (Read)
 data Result = Continue | Win | Draw | Illegal deriving (Eq,Show)
@@ -140,8 +142,9 @@ toInt' (file,rank) = 8*(fromEnum file) + fromEnum rank
 toInt :: Move -> Int
 toInt (src,dst) = 64*(toInt' src) + toInt' dst
 
+drawBoard :: Board -> String
 drawBoard = 
-  intercalate "\n" . toList . t8map (toList . (t8map drawSquare)) . transpose
+  intercalate "\n" . reverse . toList . t8map (toList . (t8map drawSquare)) . transpose
 
 whiteps = ['♙','♖','♘','♗','♕','♔']
 blackps = ['♟','♜','♞','♝','♛','♚']
