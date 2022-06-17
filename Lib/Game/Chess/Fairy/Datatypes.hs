@@ -7,6 +7,7 @@ import qualified Data.Map as Map
 import GHC.RTS.Flags (MiscFlags(installSEHHandlers))
 import Control.Applicative (liftA2)
 import Data.List (intercalate)
+import Control.Arrow ((***))
 
 data Piece = Pawn | Rook | Knight | Bishop | Queen | King deriving (Eq, Enum, Show)
 data Player = Black | White deriving (Eq, Show)
@@ -142,6 +143,9 @@ toInt' (file,rank) = 8*(fromEnum file) + fromEnum rank
 toInt :: Move -> Int
 toInt (src,dst) = 64*(toInt' src) + toInt' dst
 
+fromInt' = fromInts . (`divMod` 8)
+fromInt = uncurry (liftA2 (,)) . (fromInt' *** fromInt') . (`divMod` 64)
+
 drawBoard :: Board -> String
 drawBoard = 
   intercalate "\n" . reverse . toList . t8map (toList . (t8map drawSquare)) . transpose
@@ -155,4 +159,7 @@ drawSquare (Occupied pl p) = case pl of
   Black -> blackps !! fromEnum p
 
 showState :: GameState -> String
-showState (GS t b rnd v pm peek res) = intercalate "\n" [show t, drawBoard b, show v, "pieceMoved"++show pm, show res]
+showState gs@(GS t b rnd v pm peek res) = intercalate "\n" [show t, drawBoard b, show v, "pieceMoved: "++show pm,
+  "legalMove: "++show (fromInt (readVar "legalMove" gs)),
+  "response: "++show (fromInt (readVar "response" gs)),
+  show res]

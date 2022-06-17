@@ -88,8 +88,9 @@ rCheckmate inner e gs =
         withPeek e gs = inner e gs{peekResult = Just (((.).(.)) result noPeek)}
         r = withPeek e gs
         in if result r /= Continue then r
-        else let ply1 = filter ((Illegal /=).result.fst) [(withPeek (Move m) r, m) | m <- allMoves] in
-            if any (\(_,m) -> result (noPeek (Move m) r) == Win) ply1 then r{result=Illegal}  -- noPeek is used to test the result, so that if we thought a move was legal, it is still considered legal
+        else let ply1 = filter ((Illegal /=).result.fst) [(withPeek (Move m) r, m) | m <- allMoves]
+                 winningResponses = filter (\(_,m) -> result (noPeek (Move m) r) == Win) ply1 in  -- noPeek is used to test the result, so that if we thought a move was legal, it is still considered legal
+            if not (null winningResponses) then setVar "response" (toInt$snd$head winningResponses) r{result=Illegal}
               else if any ((Draw==).result.fst) ply1 then r
                 else case forcedWin noPeek ply1 allMoves of
                   Nothing -> r{result=Win} -- This covers the case where the opponent has no legal moves TODO: consider draws - allow a null move event?

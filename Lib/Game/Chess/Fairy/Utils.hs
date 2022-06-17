@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 module Game.Chess.Fairy.Utils where
+import GHC.IO (unsafePerformIO)
 
 instance Num (Int,Int) where
   (a,b) + (w,x) = (a+w,b+x)
@@ -17,3 +18,7 @@ safeToEnum i = let r = toEnum i
                in if i >= fromEnum min && i <= fromEnum max
                then Just r
                else Nothing
+
+
+up :: Show b => b -> a -> a
+up a b = seq (unsafePerformIO (print a)) b

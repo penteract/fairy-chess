@@ -4,6 +4,7 @@ import Game.Chess.Fairy.Datatypes
 import Control.Applicative(liftA2)
 import Data.List (nub)
 import Control.Arrow(second)
+import Game.Chess.Fairy.Utils (up)
 
 move :: Move -> Board -> Board
 move (src,dst) board = set dst (board!@src) $ set src Empty board
@@ -102,7 +103,7 @@ rider ms' (src,dst) gs = let
     delta = toInts dst - toInts src
     mx (a,b) = if abs a>abs b then a else b
     in color (getAt dst gs) /= Just (turn gs) &&  any (\ m -> let numSteps = mx delta `div` mx m in
-        fromIntegral numSteps * m == delta && clearPath (map ((toInts src+).(m*).fromIntegral) [1 .. numSteps - 1]) gs
+        numSteps>0 && fromIntegral numSteps * m == delta && clearPath (map ((toInts src+).(m*).fromIntegral) [1 .. numSteps - 1]) gs
         ) ms
 
 clearPath :: [(Int, Int)] -> GameState -> Bool
