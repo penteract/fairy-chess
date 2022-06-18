@@ -2,6 +2,7 @@
 import Game.Chess.Fairy.Datatypes
 import Game.Chess.Fairy.BaseGame
 
+import Data.Text(Text,pack,unpack)
 import Text.Read (readMaybe)
 import Control.Concurrent.MVar
 import qualified Control.Concurrent.Map as CMap
@@ -11,21 +12,53 @@ import Network.HTTP.Types.Header
 import Network.HTTP.Types
 import Network.HTTP.Types.Status
 import Network.Wai.Handler.Warp (run)
+import Network.Wai.Handler.WebSockets
+import Network.WebSockets
+import Data.Maybe (fromMaybe)
 
 --type GMap = CMap.Map Text (OngoingGame,MVar ())
 
 html = (hContentType,"text/html")
 
-app :: Application
-app req resp = do
+httpHandler :: Application
+httpHandler req resp = do
     let m = requestMethod req
     case parseMethod m of
         Right GET -> resp$ responseFile ok200 [html] "static/play.html" Nothing
         -- Right POST -> onPost games req resp
         _ -> resp$ responseLBS methodNotAllowed405 [(hAllow,"GET, POST")] ""
 
+
+--serializeMove = maybe "    " (\ ((a,b),(c,d)) -> concat (map show [a,b,c,d]))
+
+wsHandler :: ServerApp
+wsHandler pendingConn = do
+    conn <- acceptRequest pendingConn
+    --sendTextData conn ("hello"::Text)
+    let s = (outerRules.innerRules) center Start emptyState
+    withPingThread conn 30 (return ()) (loop conn Nothing s)
+    where loop conn lastMove s = do
+            sendTextData conn (pack $ drawBoard (board s) ++ fromMaybe "    " lastMove ++ show (result s))
+            dat <- unpack <$> receiveData conn
+            print dat
+            let mpos = mapM (readMaybe.(:[])) dat
+            case mpos of
+                Just [sx,sy,dx,dy] -> do
+                    let mv = Move ((sx,sy),(dx,dy))
+                    --putStrLn $ showState (innerRules center mv s)
+                    let s' = (outerRules . innerRules ) center mv s
+                    putStrLn $ showState s'
+                    case result s' of
+                        Continue -> loop conn (Just dat) s'
+                        _ -> loop conn Nothing s
+                _ -> loop conn Nothing s
+                    
+
+
 main :: IO ()
-main = putStrLn "starting server" >> run 8080 app
+main = do
+    putStrLn "starting server"
+    run 8080 $ websocketsOr defaultConnectionOptions wsHandler httpHandler
 
 debug :: IO ()
 debug = do

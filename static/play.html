@@ -2,16 +2,9 @@
 
 <html>
 <head>
-    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta charset="utf-8">
     <title>Fairy Chess</title>
     <script>
-function tagWith(list,tag){
-    return `<${tag}>`+ list.join(`</${tag}><${tag}>`)+`</${tag}>`
-}
-function showBoard(b){
-    b=b.split("\n").map(x=>x.split(""))
-    table.innerHTML = "<tbody>"+tagWith( b.map(r=>tagWith(r,"td")) ,"tr")+"</tbody>"
-}
     </script>
     <style>
 td{
@@ -26,6 +19,9 @@ tr:nth-child(even) td:nth-child(even), tr:nth-child(odd) td:nth-child(odd){
 tr:nth-child(odd) td:nth-child(even), tr:nth-child(even) td:nth-child(odd){
     background-color: goldenrod;
 }
+td.clicked{
+    background-color: lime !important;
+}
 table{
     border-spacing: 10px;
 }
@@ -34,42 +30,79 @@ table{
 <body>
     <table id="board">
     </table>
-<script>
+    <div id="moveHistory"></div>
+    <script>
+const table = document.getElementById("board")
+// receiving/displaying
 test = `♜♞♝♛♚♝♞♜
 ♟♟♟♟♟♟♟♟
         
-     ♔  
+        ♔  
         
         
 ♙♙♙♙♙♙♙♙
 ♖♘♗♕♔♗♘♖`
-
-const table = document.getElementById("board")
+function tagWith(list,tag){
+    return `<${tag}>`+ list.join(`</${tag}><${tag}>`)+`</${tag}>`
+}
+function showBoard(b){
+    b=b.split("\n").map(x=>x.split(""))
+    table.innerHTML = "<tbody>"+tagWith( b.map(r=>tagWith(r,"td")) ,"tr")+"</tbody>"
+}
 showBoard(test)
+function updateState(data){
+    showBoard(data.substr(0,9*8-1))
+    move = data.substr(9*8-1,4)
+    if (move !="    "){
+        moveHistory.innerHTML+= move[0]+(letters.indexOf(move[1])+1)+
+          move[2]+(letters.indexOf(move[3])+1)+"<br />"
+    }
+    result = data.substr(9*8+3)
+    if(result=="Continue")
+    unsetClickedCell()
+}
+let conn = new WebSocket("ws://"+window.location.host+"/get")
+conn.onmessage = e => updateState(e.data)
+conn.onopen = function(e) {
+    console.log("open",e)
+    sendMove = data => e.target.send(data)
+}
+conn.onerror = e => console.log("error",e)
+conn.onclose = e => console.log("close",e)
 
+// sending/input handling
 const letters = "ABCDEFGH"
 function getPos(td){
     const tr = td.parentElement
     const file = Array(...tr.children).indexOf(td)
-    const rank = Array(...tr.parentElement.children).indexOf(tr)
+    const rank = 7-Array(...tr.parentElement.children).indexOf(tr)
     return letters[file]+letters[rank]
 }
 
 let clickedCell = null;
+function setClicked(td){
+    if(clickedCell!==null) throw "did not expect any cell to be selected"
+    clickedCell=td
+    clickedCell.classList.add("clicked")
+}
+function unsetClickedCell(){
+    if (clickedCell!==null){
+        clickedCell.classList.remove("clicked")
+        clickedCell=null
+    }
+}
+
 table.onclick = function (e){
     if(HTMLTableCellElement.prototype.isPrototypeOf(e.target)){
         if (clickedCell===null){
-            clickedCell=e.target
+            setClicked(e.target)
         } else {
-            fetch("/"+getPos(clickedCell)+getPos(e.target),{method:"post"}).then(async function(resp){
-                let body = await response.text
-                showBoard(body)
-                clickedCell=null
-            })
-            clickedCell=null
+            sendMove(getPos(clickedCell)+getPos(e.target))
+
+            unsetClickedCell()
         }
     } else {
-        clickedCell=null
+        unsetClickedCell()
     }
 }
 

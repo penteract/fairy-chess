@@ -30,7 +30,10 @@ library
 executable server
     hs-source-dirs:      App
     main-is:             Game/Chess/Fairy/Main.hs
-    build-depends:       base, fairy-chess, warp, wai, http-types, ctrie
+    build-depends:       base, fairy-chess
+                         , ctrie
+                         , warp, wai, http-types
+                         , websockets, wai-websockets, text
 --                         bytestring,
 --                         warp, wai, http-types, ctrie, hint
 --, regex-compat,
