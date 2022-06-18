@@ -1,4 +1,4 @@
-{-#LANGUAGE RecordPuns #-}
+{-#LANGUAGE NamedFieldPuns #-}
 module Game.Chess.Fairy.Lib where
 import Game.Chess.Fairy.Datatypes
 import Control.Applicative(liftA2)

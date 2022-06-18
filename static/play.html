@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <title>Fairy Chess</title>
+    <script>
+function tagWith(list,tag){
+    return `<${tag}>`+ list.join(`</${tag}><${tag}>`)+`</${tag}>`
+}
+function showBoard(b){
+    b=b.split("\n").map(x=>x.split(""))
+    table.innerHTML = "<tbody>"+tagWith( b.map(r=>tagWith(r,"td")) ,"tr")+"</tbody>"
+}
+    </script>
+    <style>
+td{
+    text-align: center;
+    width: 30px;
+    height: 30px;
+    padding: 0px;
+}
+tr:nth-child(even) td:nth-child(even), tr:nth-child(odd) td:nth-child(odd){
+    background-color: burlywood;
+}
+tr:nth-child(odd) td:nth-child(even), tr:nth-child(even) td:nth-child(odd){
+    background-color: goldenrod;
+}
+table{
+    border-spacing: 10px;
+}
+    </style>
+</head>
+<body>
+    <table id="board">
+    </table>
+<script>
+test = `♜♞♝♛♚♝♞♜
+♟♟♟♟♟♟♟♟
+        
+     ♔  
+        
+        
+♙♙♙♙♙♙♙♙
+♖♘♗♕♔♗♘♖`
+
+const table = document.getElementById("board")
+showBoard(test)
+
+const letters = "ABCDEFGH"
+function getPos(td){
+    const tr = td.parentElement
+    const file = Array(...tr.children).indexOf(td)
+    const rank = Array(...tr.parentElement.children).indexOf(tr)
+    return letters[file]+letters[rank]
+}
+
+let clickedCell = null;
+table.onclick = function (e){
+    if(HTMLTableCellElement.prototype.isPrototypeOf(e.target)){
+        if (clickedCell===null){
+            clickedCell=e.target
+        } else {
+            fetch("/"+getPos(clickedCell)+getPos(e.target),{method:"post"}).then(async function(resp){
+                let body = await response.text
+                showBoard(body)
+                clickedCell=null
+            })
+            clickedCell=null
+        }
+    } else {
+        clickedCell=null
+    }
+}
+
+</script>
+</body>
+</html>
