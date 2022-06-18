@@ -4,7 +4,7 @@ module Game.Chess.Fairy.BaseGame where
 
 import Game.Chess.Fairy.Datatypes
 import Game.Chess.Fairy.Lib
-import Control.Arrow (second)
+import Control.Arrow (first)
 
 
 initialLayout ::Board
@@ -55,7 +55,7 @@ rPawnMoves = trackMoved $
 castling :: Rule
 castling = withMove (\ (src,dst) -> withPeekResult (\ peek -> with (__ id) (\ gs -> let 
   delta = toInts dst - toInts src
-  notCheck pos = all ((Win/=) . flip peek (applyMove (src,pos) gs).Move) allMoves
+  notCheck pos = all ((Win/=) . flip peek (center (Move (src,dst)) (applyMove (src,pos) gs)).Move) allMoves
   unmovedRook pos = getAt pos gs == Occupied (turn gs) Rook && unmoved (pos,pos) gs
   castle :: BoardPos -> [Index] -> Rule
   castle rookPos path = addMovesAnd King (unmoved ^^&&^^ (__ (unmovedRook rookPos)) -- king and rook are unmoved
@@ -63,8 +63,8 @@ castling = withMove (\ (src,dst) -> withPeekResult (\ peek -> with (__ id) (\ gs
                                          ^^&&^^ (__ (notCheck src && notCheck (middle (src,dst)))) ) -- king can't castle out of check or through check
                           (applyMove (rookPos, (middle (src,dst)))) -- Interesting behaviour if rook is too close to king
   in case delta of
-    (2,0) -> castle (second (const H) src) ([H,G .. snd src])
-    (-2,0) -> castle (second (const A) src) ([A,B .. snd src])
+    (2,0) -> castle (first (const H) src) ([H,G .. fst src])
+    (-2,0) -> castle (first (const A) src) ([A,B .. fst src])
     _ -> id)))
 
 rKingMoves :: Rule
