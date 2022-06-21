@@ -163,3 +163,4 @@ showState gs@(GS t b rnd v pm peek res) = intercalate "\n" [show t, drawBoard b,
   "legalMove: "++show (fromInt (readVar "legalMove" gs)),
   "response: "++show (fromInt (readVar "response" gs)),
   show res]
+
