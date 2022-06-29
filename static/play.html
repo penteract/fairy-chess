@@ -4,8 +4,6 @@
 <head>
     <meta charset="utf-8">
     <title>Fairy Chess</title>
-    <script>
-    </script>
     <style>
 td{
     text-align: center;
@@ -30,6 +28,7 @@ table{
 <body>
     <table id="board">
     </table>
+    <div>To invite someone to join or spectate the game, share the url of this page</div>
     <div id="moveHistory"></div>
     <script>
 const table = document.getElementById("board")
@@ -61,11 +60,13 @@ function updateState(data){
     if(result=="Continue")
     unsetClickedCell()
 }
-let conn = new WebSocket("ws://"+window.location.host+"/get")
+
+let conn = new WebSocket("ws://"+window.location.host+"/play"+window.location.search)
 conn.onmessage = e => updateState(e.data)
 conn.onopen = function(e) {
     console.log("open",e)
     sendMove = data => e.target.send(data)
+    e.target.send(sec=randstr())
 }
 conn.onerror = e => console.log("error",e)
 conn.onclose = e => console.log("close",e)
@@ -104,6 +105,11 @@ table.onclick = function (e){
     } else {
         unsetClickedCell()
     }
+}
+function randstr() {
+    s=""
+    for(let i=0;i<10;i++) s+=String.fromCharCode(65+Math.random()*26)
+    return s
 }
 
 </script>

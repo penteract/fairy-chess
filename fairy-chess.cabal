@@ -33,13 +33,14 @@ executable server
     build-depends:       base, fairy-chess
                          , ctrie
                          , warp, wai, http-types
-                         , websockets, wai-websockets, text
+                         , websockets, wai-websockets, text, bytestring
 --                         bytestring,
 --                         warp, wai, http-types, ctrie, hint
 --, regex-compat,
 --                         lens, transformers, mtl,
 --                         containers, random, text,
 --                         time
+    other-modules:       Game.Chess.Fairy.Server
 --    other-modules:       Game.Bartok.Serialize, Game.Bartok.ServerInterface, Game.Bartok.Whitelist
     default-language:    Haskell2010
 
