@@ -34,6 +34,7 @@ executable server
                          , ctrie
                          , warp, wai, http-types
                          , websockets, wai-websockets, text, bytestring
+                         , hint
 --                         bytestring,
 --                         warp, wai, http-types, ctrie, hint
 --, regex-compat,

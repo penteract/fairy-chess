@@ -1,6 +1,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveFunctor #-}
 module Game.Chess.Fairy.Server(wsHandler) where
 
 import Game.Chess.Fairy.Datatypes
@@ -11,15 +12,18 @@ import qualified Control.Concurrent.Map as CMap
 import Data.IORef
 import Network.WebSockets
 
-import Data.Text.Lazy (Text,pack,unpack)
+import Data.Text.Lazy (Text,pack,unpack, cons)
 import qualified Data.ByteString.Char8 as B
 import Data.Bits(shift)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Foldable(toList)
 import qualified Data.Foldable as F
 import Control.Monad (forever)
 import Control.Exception (finally)
 import Text.Read (readMaybe)
+import Control.Arrow(second)
+
+import Language.Haskell.Interpreter
 
 
 -- A structure for keeping track of all games currently being played
@@ -84,7 +88,24 @@ handleJoin c gvar = do
           Just (sec,Nothing) -> if sec==secret then Just (play c n (setPlayer n (Just (secret, Just c)) og) gvar) else Nothing
           Just (sec,Just conn) -> if sec==secret then Just (putMVar gvar og) else Nothing
         addListener = let (ns,n) = addObserver c og in putMVar gvar ns  >> removeOnClose c n gvar
-    fromMaybe addListener (tryAddPlayer One <> tryAddPlayer Two)
+    fromMaybe addListener (tryAddPlayer One <> (if isNothing (playerTwo og) then Just (startgame (secret,c) og gvar) else tryAddPlayer Two))
+
+startgame :: (Text,Connection) -> OngoingGame -> MVar OngoingGame -> IO ()
+startgame (secret,conn) og@OG{playerOne=Just(_,Just _), playerTwo=Nothing} gvar = do
+    let og' = og{playerTwo=Just (secret,Just conn), gs= applyEvent Start og}
+    sendInitMsg og'
+    play conn Two og' gvar
+startgame _ _ _ = error "Trying to start a game that has already started or is not ready to start"
+
+sendInitMsg :: OngoingGame -> IO ()
+sendInitMsg = sendActionMsg Init
+
+sendActionMsg :: (ExpectedAction -> GameState -> ServerMsg) -> OngoingGame -> IO ()
+sendActionMsg action og@OG{tinfo=(Turn pn _ _),gs} = do
+    sequence_ (sendMsg (action YourMove gs) <$>  (getPlayer pn og >>= snd))
+    sequence_ (sendMsg (action Wait gs) <$>  (getPlayer (otherNum pn) og >>= snd))
+    sequence_ (sendMsg (action Wait gs) <$>  observers og)
+sendActionMsg _ _ = error "bad State"
 
 addObserver :: Connection -> OngoingGame -> (OngoingGame, Int)
 addObserver conn og@OG{observers=os} = let (t',n) = add conn os in (og{observers=t'} , n)
@@ -103,21 +124,26 @@ play conn pn og gvar = do
     forever (do
         msg <- unpack <$> receiveData conn
         print msg
-        case parseMove msg of
-            Just mv -> handleMove conn pn mv gvar -- TODO: handle winning and adding a new rule
-            Nothing -> close conn)
+        case parseMsg msg of
+            Just (MakeMove mv) -> handleMove conn pn mv gvar
+            Just (NewRule r) -> handleRule conn pn r gvar
+            Nothing -> putStrLn "unable to parse" >> close conn)
         `finally` do
       og <- takeMVar gvar
       case getPlayer pn og of
-        Nothing -> error "The player has joined the game, so this should be impossible"
+        Nothing -> error "The player has joined the game, so this should be impossible, but it looks like something removed them"
         Just (s,_) -> putMVar gvar (setPlayer pn (Just (s,Nothing)) og)
 
-parseMove :: String -> Maybe Move
-parseMove dat =
+parseMsg :: String -> Maybe ClientMsg
+parseMsg "random" = Just RandomMove -- acceptable because "andom" is not a valid rule
+parseMsg ('r':code) = Just$ NewRule code
+parseMsg dat =
     let mpos = mapM (readMaybe.(:[])) dat in
     case mpos of
-        Just [sx,sy,dx,dy] -> Just ((sx,sy),(dx,dy))
+        Just [sx,sy,dx,dy] -> Just (MakeMove ((sx,sy),(dx,dy)))
         _ -> Nothing
+-- |Messages sent by the client
+data ClientMsg = MakeMove Move| RandomMove | NewRule String
 
 close :: Connection -> IO ()
 close conn = do
@@ -133,31 +159,79 @@ handleMove conn pn mv gvar = do
         Nothing -> err "other move being processed"
         -}
     og <- takeMVar gvar
+    let err msg = sendMsg (Err msg) conn >> putMVar gvar og
+    let tellAndPut act og' = do
+            sendActionMsg act og'
+            putMVar gvar og'
     case tinfo og of
-      Turn pn' _ _ | pn==pn' -> let gs' = foldr ($) center (rules og) (Move mv) (gs og)
-                                    og' = og{gs=gs'} in case result gs' of
-        Illegal -> publishMove og ('I':show mv) gvar
-        Win -> publishMove og' ('W':show mv) gvar
-        Draw -> publishMove og' ('D':show mv) gvar
-        Continue -> publishMove og'{tinfo = Turn (otherNum pn) 0 0} ('C':show mv) gvar
-                  | otherwise -> sendTextData conn ("ErrTurn"::Text)
-      Rule pn -> sendTextData conn ("ErrRule"::Text)
+      Turn pn' _ _ | pn==pn' -> let gs' = applyEvent (Move mv) og
+                                    history' = show mv : history og
+                                    og' = og{gs=gs', history=history'} in case result gs' of
+        Illegal -> tellAndPut (\ _ _ -> Attempt mv) og
+        Win -> tellAndPut (NewState mv) og'{tinfo=Rule(otherNum pn)}
+        Draw -> tellAndPut (NewState mv) og'{tinfo=Rule pn}
+        Continue -> tellAndPut (NewState mv) og'{tinfo = Turn (otherNum pn) 0 0}
+                  | otherwise -> err "Not your turn"
+      Rule _ -> err "Game is not in progress"
 
-publishMove :: OngoingGame -> String -> MVar OngoingGame -> IO ()
-publishMove og s var = do
-    broadcast og (s ++ showState (gs og))
-    putMVar var og
+applyEvent :: Event -> OngoingGame -> GameState
+applyEvent e og = foldr ($) (innerRules center) (outerRules: rules og) e (gs og)
 
-broadcast :: OngoingGame -> [Char] -> IO ()
-broadcast OG{playerOne,playerTwo,observers} s = let txt = pack s in
-    mapM_ (flip sendTextData txt) (([playerOne, playerTwo]>>=(concat.(F.toList.snd<$>). F.toList) ) ++ treeToList observers)
+handleRule :: Connection -> PlayerNum -> String -> MVar OngoingGame -> IO ()
+handleRule conn pn codeString gvar = do
+    og <- takeMVar gvar
+    let err msg = sendMsg (Err msg) conn >> putMVar gvar og
+    case tinfo og of
+      Turn _ _ _ -> err "Game is in progress"
+      Rule pn' | pn/=pn' -> err "Not your turn to make a rule"
+               | otherwise {-pn==pn'-} -> do
+                    let qimps = zip [ "Prelude"
+                                    , "Game.Chess.Fairy.Datatypes"
+                                    , "Game.Chess.Fairy.Lib"]
+                                    (repeat Nothing)
+                          ++ map (second Just) [
+                            ("Data.Map", "Map"),
+                            ("Control.Arrow","Arrow"),
+                            ("Control.Monad","Monad"),
+                            ("Control.Applicative","Applicative")
+                            ]
+                    f <- liftIO$ runInterpreter$ (do
+                           setImportsQ qimps
+                           interpret codeString (as::Rule))
+                    case f of
+                        Left errmsg -> err (pack (fromErr errmsg))
+                        Right r -> do
+                            let og' = og{rules=(r:rules og), tinfo=Turn (otherNum pn) 0 0 }
+                            sendInitMsg og'
+                            putMVar gvar og'
 
+fromErr (WontCompile errs) = Prelude.unlines (map frghc errs)
+fromErr e = "weird error: "++ show e
+frghc (GhcError{errMsg=m}) = m
 
+data ExpectedAction = YourMove | YourRule | Wait
+toChar :: ExpectedAction -> Char
+toChar YourMove = 'm'
+toChar YourRule = 'y'
+toChar Wait = 'w'
 
+-- |Messages sent by the server
+data ServerMsg = Init ExpectedAction GameState -- Start a game (including restart after a rule has been added)
+  | NewState Move ExpectedAction GameState -- 
+  | Attempt Move -- A failed move
+  | Err Text
 
+sendMsg :: ServerMsg -> Connection -> IO ()
+sendMsg (Err msg) conn = sendTextData conn (cons 'e' msg)
+sendMsg (Attempt mv) conn = sendTextData conn (pack ('a':moveToString mv))
+sendMsg (NewState mv exp gs) conn = sendTextData conn (pack ('s':toChar exp : moveToString mv ++ drawBoard (board gs)))
+sendMsg (Init exp gs) conn = sendTextData conn (pack ('i':toChar exp : drawBoard (board gs)))
+
+moveToString :: Move -> String
+moveToString ((a,b),(c,d)) = [chr | x<- [a,b,c,d], chr <- show x]
 
 -- depth, capacity, left, right
-data Tree a = Branch Int Int (Tree a) (Tree a) | Leaf (Maybe a) deriving (Foldable,Show)
+data Tree a = Branch Int Int (Tree a) (Tree a) | Leaf (Maybe a) deriving (Foldable,Show,Functor)
 
 hasSpace :: Tree a -> Bool
 hasSpace (Leaf (Just _)) = False

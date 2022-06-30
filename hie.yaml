@@ -1,0 +1,10 @@
+cradle:
+  cabal:
+    - path: "Lib"
+      component: "lib:fairy-chess"
+
+    - path: "App/Game/Chess/Fairy/Main.hs"
+      component: "fairy-chess:exe:server"
+
+    - path: "App/Game/Chess/Fairy/Server.hs"
+      component: "fairy-chess:exe:server"

@@ -5,16 +5,16 @@
     <meta charset="utf-8">
     <title>Fairy Chess</title>
     <style>
-td{
+#board td{
     text-align: center;
     width: 30px;
     height: 30px;
     padding: 0px;
 }
-tr:nth-child(even) td:nth-child(even), tr:nth-child(odd) td:nth-child(odd){
+#board tr:nth-child(even) td:nth-child(even), #board tr:nth-child(odd) td:nth-child(odd){
     background-color: burlywood;
 }
-tr:nth-child(odd) td:nth-child(even), tr:nth-child(even) td:nth-child(odd){
+#board tr:nth-child(odd) td:nth-child(even), #board tr:nth-child(even) td:nth-child(odd){
     background-color: goldenrod;
 }
 td.clicked{
@@ -26,10 +26,11 @@ table{
     </style>
 </head>
 <body>
+    <div id="whosturn"></div>
     <table id="board">
     </table>
     <div>To invite someone to join or spectate the game, share the url of this page</div>
-    <div id="moveHistory"></div>
+    <div><table><thead><tr><td>Moves</td><td>Illegal moves</td> </tr></thead></thead><tbody id="moveHistory"></tbody></table></div>
     <script>
 const table = document.getElementById("board")
 // receiving/displaying
@@ -49,20 +50,28 @@ function showBoard(b){
     table.innerHTML = "<tbody>"+tagWith( b.map(r=>tagWith(r,"td")) ,"tr")+"</tbody>"
 }
 showBoard(test)
-function updateState(data){
-    showBoard(data.substr(0,9*8-1))
-    move = data.substr(9*8-1,4)
-    if (move !="    "){
-        moveHistory.innerHTML+= move[0]+(letters.indexOf(move[1])+1)+
-          move[2]+(letters.indexOf(move[3])+1)+"<br />"
+
+function processMessage(msg){
+    switch (msg[0]){
+        case "e":alert(msg.substr(1));break;
+        case "s":
+            setAction(msg[1])
+            showBoard(msg.substr(6))
+            moveHistory.appendChild(document.createElement("tr"))
+            moveHistory.lastChild.innerHTML="<td>"+msg.substr(2,4)+"</td><td></td>"
+            break;
+        case "i":
+            setAction(msg[1])
+            moveHistory.innerHTML="<tr><td></td><td></td></tr>"
+            showBoard(msg.substr(2))
+            break;
+        case "a":
+            moveHistory.lastChild.lastChild.innerHTML+=msg.substr(1,4)+"<br>"
     }
-    result = data.substr(9*8+3)
-    if(result=="Continue")
-    unsetClickedCell()
 }
 
 let conn = new WebSocket("ws://"+window.location.host+"/play"+window.location.search)
-conn.onmessage = e => updateState(e.data)
+conn.onmessage = e => processMessage(e.data)
 conn.onopen = function(e) {
     console.log("open",e)
     sendMove = data => e.target.send(data)
@@ -70,6 +79,17 @@ conn.onopen = function(e) {
 }
 conn.onerror = e => console.log("error",e)
 conn.onclose = e => console.log("close",e)
+var expectedAction="w"
+let turnMsg = {
+    "w" : "Not your turn",
+    "m" : "Your Turn",
+    "y" : "you should add a new rule <a href=\"newrule"+location.search+"\">here</a> (you probably lost)"
+}
+function setAction(a){
+    action=a
+    whosturn.innerHTML=turnMsg[a]
+    unsetClickedCell()
+}
 
 // sending/input handling
 const letters = "ABCDEFGH"
