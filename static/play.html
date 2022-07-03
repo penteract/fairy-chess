@@ -81,9 +81,11 @@ conn.onerror = e => console.log("error",e)
 conn.onclose = e => console.log("close",e)
 var expectedAction="w"
 let turnMsg = {
-    "w" : "Not your turn",
-    "m" : "Your Turn",
-    "y" : "you should add a new rule <a href=\"newrule"+location.search+"\">here</a> (you probably lost)"
+    "w" : "Not your turn"
+    , "u" : "Not your turn(waiting for someone else to add a rule"
+    , "m" : "Your Turn"
+    , "y" : "you should add a new rule <a href=\"rule.html"+location.search+"\">here</a> (you probably lost)"
+    , "o" : "You are observing this game"
 }
 function setAction(a){
     action=a
@@ -127,8 +129,10 @@ table.onclick = function (e){
     }
 }
 function randstr() {
+    if(sec=localStorage.getItem("secret")) return sec;
     s=""
     for(let i=0;i<10;i++) s+=String.fromCharCode(65+Math.random()*26)
+    localStorage.setItem("secret",s)
     return s
 }
 

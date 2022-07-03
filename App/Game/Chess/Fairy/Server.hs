@@ -19,7 +19,7 @@ import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Foldable(toList)
 import qualified Data.Foldable as F
 import Control.Monad (forever)
-import Control.Exception (finally)
+import Control.Exception (finally, evaluate, mask, onException)
 import Text.Read (readMaybe)
 import Control.Arrow(second)
 
@@ -42,7 +42,7 @@ wsHandler games pending = do
         inserted <- CMap.insertIfAbsent gid gvar games
         Just gvar' <- if inserted then return (Just gvar) else CMap.lookup gid games -- If at some point games are removed, throwing here is acceptable.
         c <- acceptRequest pending
-        handleJoin c gvar')
+        withPingThread c 30 (return ()) (handleJoin c gvar'))
       gameID
 
 newGame :: IO (MVar OngoingGame)
@@ -62,7 +62,7 @@ data OngoingGame = OG {gs :: GameState, history :: [String], tinfo :: TurnInfo, 
     }
 
 instance Show OngoingGame where
-    show OG{playerOne,playerTwo} = "Game "++show playerOne++ ";" ++ show playerTwo
+    show OG{playerOne,playerTwo,tinfo} = "Game "++show playerOne++ ";" ++ show playerTwo ++ "@"++ show tinfo
 
 instance Show Connection where
     show conn = "<conn>"
@@ -104,8 +104,17 @@ sendActionMsg :: (ExpectedAction -> GameState -> ServerMsg) -> OngoingGame -> IO
 sendActionMsg action og@OG{tinfo=(Turn pn _ _),gs} = do
     sequence_ (sendMsg (action YourMove gs) <$>  (getPlayer pn og >>= snd))
     sequence_ (sendMsg (action Wait gs) <$>  (getPlayer (otherNum pn) og >>= snd))
-    sequence_ (sendMsg (action Wait gs) <$>  observers og)
-sendActionMsg _ _ = error "bad State"
+    sequence_ (sendMsg (action Observe gs) <$>  observers og)
+sendActionMsg action og@OG{tinfo=(Rule pn),gs} = do
+    sequence_ (sendMsg (action YourRule gs) <$>  (getPlayer pn og >>= snd))
+    sequence_ (sendMsg (action WaitRule gs) <$>  (getPlayer (otherNum pn) og >>= snd))
+    sequence_ (sendMsg (action Observe gs) <$>  observers og)
+
+sendWelcomeMsg :: OngoingGame -> PlayerNum -> Connection -> IO ()
+sendWelcomeMsg OG{tinfo=(Turn pn _ _),gs} pn' conn =
+    sendMsg (Init (if pn==pn' then YourMove else Wait) gs) conn
+sendWelcomeMsg OG{tinfo=(Rule pn),gs} pn' conn =
+    sendMsg (Init (if pn==pn' then YourRule else WaitRule) gs) conn
 
 addObserver :: Connection -> OngoingGame -> (OngoingGame, Int)
 addObserver conn og@OG{observers=os} = let (t',n) = add conn os in (og{observers=t'} , n)
@@ -120,15 +129,17 @@ removeOnClose conn n gvar = forever (receive conn) `finally` do
 play :: Connection -> PlayerNum -> OngoingGame -> MVar OngoingGame -> IO ()
 play conn pn og gvar = do
     putStrLn ("starting play"++show pn)
+    sendWelcomeMsg og pn conn
     putMVar gvar og
     forever (do
         msg <- unpack <$> receiveData conn
         print msg
         case parseMsg msg of
-            Just (MakeMove mv) -> handleMove conn pn mv gvar
-            Just (NewRule r) -> handleRule conn pn r gvar
+            Just (MakeMove mv) ->handleGameSafely (handleMove conn pn mv) gvar
+            Just (NewRule r) -> handleGameSafely (handleRule conn pn r) gvar
             Nothing -> putStrLn "unable to parse" >> close conn)
         `finally` do
+      putStrLn "error"
       og <- takeMVar gvar
       case getPlayer pn og of
         Nothing -> error "The player has joined the game, so this should be impossible, but it looks like something removed them"
@@ -150,19 +161,27 @@ close conn = do
     sendClose conn (""::Text)
     forever (receive conn)
 
+-- |'bracket' doesn't do exactly what I want, but this serves a similar purpose
+handleGameSafely :: (OngoingGame -> IO (Maybe OngoingGame)) -> MVar OngoingGame -> IO ()
+handleGameSafely handler gvar = mask $ \restore -> do
+    og <- takeMVar gvar
+    r <- restore (handler og >>= evaluate) `onException` putMVar gvar og
+    case r of
+        (Just og') -> putMVar gvar og'
+        Nothing -> putMVar gvar og
 
-handleMove :: Connection -> PlayerNum -> Move -> MVar OngoingGame -> IO ()
-handleMove conn pn mv gvar = do
+
+handleMove :: Connection -> PlayerNum -> Move -> OngoingGame -> IO (Maybe OngoingGame)
+handleMove conn pn mv og = do
     {-TODO: consider finding a way to make observers joining independent of the players MVar
     mog <- tryTakeMVar mv
     case mog of
         Nothing -> err "other move being processed"
         -}
-    og <- takeMVar gvar
-    let err msg = sendMsg (Err msg) conn >> putMVar gvar og
+    let err msg = sendMsg (Err msg) conn >> return Nothing
     let tellAndPut act og' = do
             sendActionMsg act og'
-            putMVar gvar og'
+            return (Just og')
     case tinfo og of
       Turn pn' _ _ | pn==pn' -> let gs' = applyEvent (Move mv) og
                                     history' = show mv : history og
@@ -177,10 +196,9 @@ handleMove conn pn mv gvar = do
 applyEvent :: Event -> OngoingGame -> GameState
 applyEvent e og = foldr ($) (innerRules center) (outerRules: rules og) e (gs og)
 
-handleRule :: Connection -> PlayerNum -> String -> MVar OngoingGame -> IO ()
-handleRule conn pn codeString gvar = do
-    og <- takeMVar gvar
-    let err msg = sendMsg (Err msg) conn >> putMVar gvar og
+handleRule :: Connection -> PlayerNum -> String -> OngoingGame -> IO (Maybe OngoingGame)
+handleRule conn pn codeString og = do
+    let err msg = sendMsg (Err msg) conn >> return Nothing
     case tinfo og of
       Turn _ _ _ -> err "Game is in progress"
       Rule pn' | pn/=pn' -> err "Not your turn to make a rule"
@@ -202,18 +220,21 @@ handleRule conn pn codeString gvar = do
                         Left errmsg -> err (pack (fromErr errmsg))
                         Right r -> do
                             let og' = og{rules=(r:rules og), tinfo=Turn (otherNum pn) 0 0 }
-                            sendInitMsg og'
-                            putMVar gvar og'
+                            let og'' = og'{gs=applyEvent Start og'}
+                            sendInitMsg og''
+                            return (Just og'')
 
 fromErr (WontCompile errs) = Prelude.unlines (map frghc errs)
 fromErr e = "weird error: "++ show e
 frghc (GhcError{errMsg=m}) = m
 
-data ExpectedAction = YourMove | YourRule | Wait
+data ExpectedAction = YourMove | YourRule | Wait | WaitRule | Observe
 toChar :: ExpectedAction -> Char
 toChar YourMove = 'm'
 toChar YourRule = 'y'
 toChar Wait = 'w'
+toChar WaitRule = 'u'
+toChar Observe = 'o'
 
 -- |Messages sent by the server
 data ServerMsg = Init ExpectedAction GameState -- Start a game (including restart after a rule has been added)

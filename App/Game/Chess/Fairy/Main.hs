@@ -29,6 +29,7 @@ httpHandler req resp = do
         Right GET -> case pathInfo req of
             [] -> resp$ responseFile ok200 [html] "static/home.html" Nothing
             ["play.html"] -> resp$ responseFile ok200 [html] "static/play.html" Nothing
+            ["rule.html"] -> resp$ responseFile ok200 [html] "static/rule.html" Nothing
             _ -> resp$ responseLBS notFound404 [] "Page not found"
         _ -> resp$ responseLBS methodNotAllowed405 [(hAllow,"GET")] ""
 

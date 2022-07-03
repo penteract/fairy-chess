@@ -29,7 +29,7 @@ changeTurn gs = gs{turn=other (turn gs)}
 -- |The center of a ruleset - the whole game should be (outerRules . playersRules . innerRules) center
 -- changes who's turn it is and sets pieceMoved to False
 center :: Game
-center Start gs = gs{pieceMoved=False}
+center Start gs = gs{pieceMoved=False,result=Continue}
 center mv gs = (changeTurn gs){pieceMoved=False}
 
 rNoMoveIllegal :: Rule -- If no outer rule has set `pieceMoved`, the attempted move is illegal
