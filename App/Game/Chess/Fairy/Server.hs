@@ -25,9 +25,55 @@ import Control.Arrow(second)
 
 import Language.Haskell.Interpreter
 
+ -- Data structures for a game in progress
+
+data PlayerNum = One | Two deriving (Eq,Show)
+otherNum :: PlayerNum -> PlayerNum
+otherNum One = Two
+otherNum Two = One
+data TurnInfo = Turn {plNum :: PlayerNum, tEnd::Int, oppRemaining::Int} | Rule PlayerNum deriving Show
+
+data OngoingGame = OG {gs :: GameState, history :: [String], tinfo :: TurnInfo, rules :: [Rule],
+    playerOne :: Maybe (Text,Tree Connection),  playerTwo :: Maybe (Text, Tree Connection), observers :: Tree Connection
+    }
+
+newGame :: IO (MVar OngoingGame)
+newGame = do
+    v <- newEmptyMVar
+    putMVar v (OG emptyState [] (Turn One 0 0) [] Nothing Nothing (Leaf Nothing))
+    return v
+
+instance Show OngoingGame where
+    show OG{playerOne,playerTwo,tinfo} = "Game "++show playerOne++ ";" ++ show playerTwo ++ "@"++ show tinfo
+
+instance Show Connection where
+    show conn = "<conn>"
+
+getPlayers :: PlayerNum -> OngoingGame -> Maybe (Text, Tree Connection)
+getPlayers One = playerOne
+getPlayers Two = playerTwo
+
+setPlayers :: PlayerNum -> Maybe (Text, Tree Connection) -> OngoingGame -> OngoingGame
+setPlayers One p og = og{playerOne=p}
+setPlayers Two p og = og{playerTwo=p}
+
 
 -- A structure for keeping track of all games currently being played
 type GMap = CMap.Map B.ByteString (MVar OngoingGame)
+
+
+-- |Messages sent by the server
+data ServerMsg = Init ExpectedAction GameState -- Start a game (including restart after a rule has been added)
+  | NewState Move ExpectedAction GameState -- 
+  | Attempt Move -- A failed move
+  | Err Text
+
+data ExpectedAction = YourMove | YourRule | Wait | WaitRule | Observe
+
+-- |Messages sent by the client
+data ClientMsg = MakeMove Move| RandomMove | NewRule String
+
+-- Main game logic
 
 wsHandler :: GMap -> ServerApp
 wsHandler games pending = do
@@ -45,36 +91,6 @@ wsHandler games pending = do
         withPingThread c 30 (return ()) (handleJoin c gvar'))
       gameID
 
-newGame :: IO (MVar OngoingGame)
-newGame = do
-    v <- newEmptyMVar
-    putMVar v (OG emptyState [] (Turn One 0 0) [] Nothing Nothing (Leaf Nothing))
-    return v
-
-
-data PlayerNum = One | Two deriving (Eq,Show)
-otherNum :: PlayerNum -> PlayerNum
-otherNum One = Two
-otherNum Two = One
-data TurnInfo = Turn {plNum :: PlayerNum, tEnd::Int, oppRemaining::Int} | Rule PlayerNum deriving Show
-data OngoingGame = OG {gs :: GameState, history :: [String], tinfo :: TurnInfo, rules :: [Rule],
-    playerOne :: Maybe (Text,Maybe Connection),  playerTwo :: Maybe (Text, Maybe Connection), observers :: Tree Connection
-    }
-
-instance Show OngoingGame where
-    show OG{playerOne,playerTwo,tinfo} = "Game "++show playerOne++ ";" ++ show playerTwo ++ "@"++ show tinfo
-
-instance Show Connection where
-    show conn = "<conn>"
-
-getPlayer :: PlayerNum -> OngoingGame -> Maybe (Text,Maybe Connection)
-getPlayer One = playerOne
-getPlayer Two = playerTwo
-
-setPlayer :: PlayerNum -> Maybe (Text,Maybe Connection) -> OngoingGame -> OngoingGame
-setPlayer One p og = og{playerOne=p}
-setPlayer Two p og = og{playerTwo=p}
-
 handleJoin :: Connection -> MVar OngoingGame -> IO ()
 handleJoin c gvar = do
     putStrLn "handling join"
@@ -83,51 +99,24 @@ handleJoin c gvar = do
     og <- takeMVar gvar
     print og
     let tryAddPlayer :: PlayerNum -> Maybe (IO ())
-        tryAddPlayer n = case getPlayer n og of
-          Nothing -> Just (play c n (setPlayer n (Just (secret, Just c)) og) gvar)
-          Just (sec,Nothing) -> if sec==secret then Just (play c n (setPlayer n (Just (secret, Just c)) og) gvar) else Nothing
-          Just (sec,Just conn) -> if sec==secret then Just (putMVar gvar og) else Nothing
+        tryAddPlayer pn = case getPlayers pn og of
+          Nothing -> Just (play c 0 pn (setPlayers pn (Just (secret, Leaf (Just c))) og) gvar)
+          Just (sec,tree) -> if sec==secret then
+            let (t',n) = add c tree in
+                Just (play c n pn (setPlayers pn (Just (secret, t')) og) gvar)
+            else Nothing
         addListener = let (ns,n) = addObserver c og in putMVar gvar ns  >> removeOnClose c n gvar
     fromMaybe addListener (tryAddPlayer One <> (if isNothing (playerTwo og) then Just (startgame (secret,c) og gvar) else tryAddPlayer Two))
 
 startgame :: (Text,Connection) -> OngoingGame -> MVar OngoingGame -> IO ()
-startgame (secret,conn) og@OG{playerOne=Just(_,Just _), playerTwo=Nothing} gvar = do
-    let og' = og{playerTwo=Just (secret,Just conn), gs= applyEvent Start og}
+startgame (secret,conn) og@OG{playerOne=Just _, playerTwo=Nothing} gvar = do
+    let og' = og{playerTwo=Just (secret,Leaf (Just conn)), gs= applyEvent Start og}
     sendInitMsg og'
-    play conn Two og' gvar
+    play conn 0 Two og' gvar
 startgame _ _ _ = error "Trying to start a game that has already started or is not ready to start"
 
-sendInitMsg :: OngoingGame -> IO ()
-sendInitMsg = sendActionMsg Init
-
-sendActionMsg :: (ExpectedAction -> GameState -> ServerMsg) -> OngoingGame -> IO ()
-sendActionMsg action og@OG{tinfo=(Turn pn _ _),gs} = do
-    sequence_ (sendMsg (action YourMove gs) <$>  (getPlayer pn og >>= snd))
-    sequence_ (sendMsg (action Wait gs) <$>  (getPlayer (otherNum pn) og >>= snd))
-    sequence_ (sendMsg (action Observe gs) <$>  observers og)
-sendActionMsg action og@OG{tinfo=(Rule pn),gs} = do
-    sequence_ (sendMsg (action YourRule gs) <$>  (getPlayer pn og >>= snd))
-    sequence_ (sendMsg (action WaitRule gs) <$>  (getPlayer (otherNum pn) og >>= snd))
-    sequence_ (sendMsg (action Observe gs) <$>  observers og)
-
-sendWelcomeMsg :: OngoingGame -> PlayerNum -> Connection -> IO ()
-sendWelcomeMsg OG{tinfo=(Turn pn _ _),gs} pn' conn =
-    sendMsg (Init (if pn==pn' then YourMove else Wait) gs) conn
-sendWelcomeMsg OG{tinfo=(Rule pn),gs} pn' conn =
-    sendMsg (Init (if pn==pn' then YourRule else WaitRule) gs) conn
-
-addObserver :: Connection -> OngoingGame -> (OngoingGame, Int)
-addObserver conn og@OG{observers=os} = let (t',n) = add conn os in (og{observers=t'} , n)
-
-removeOnClose :: Connection -> Int -> MVar OngoingGame -> IO ()
-removeOnClose conn n gvar = forever (receive conn) `finally` do
-    og@OG{observers=os} <- takeMVar gvar
-    let os' = remove n os
-    putMVar gvar og{observers=os'}
-
-
-play :: Connection -> PlayerNum -> OngoingGame -> MVar OngoingGame -> IO ()
-play conn pn og gvar = do
+play :: Connection -> Int -> PlayerNum -> OngoingGame -> MVar OngoingGame -> IO ()
+play conn n pn og gvar = do
     putStrLn ("starting play"++show pn)
     sendWelcomeMsg og pn conn
     putMVar gvar og
@@ -139,27 +128,13 @@ play conn pn og gvar = do
             Just (NewRule r) -> handleGameSafely (handleRule conn pn r) gvar
             Nothing -> putStrLn "unable to parse" >> close conn)
         `finally` do
-      putStrLn "error"
+      putStrLn ("Player "++show pn++" has left")
       og <- takeMVar gvar
-      case getPlayer pn og of
+      case getPlayers pn og of
         Nothing -> error "The player has joined the game, so this should be impossible, but it looks like something removed them"
-        Just (s,_) -> putMVar gvar (setPlayer pn (Just (s,Nothing)) og)
+        Just (s,t) -> putMVar gvar (setPlayers pn (Just (s,remove n t)) og)
 
-parseMsg :: String -> Maybe ClientMsg
-parseMsg "random" = Just RandomMove -- acceptable because "andom" is not a valid rule
-parseMsg ('r':code) = Just$ NewRule code
-parseMsg dat =
-    let mpos = mapM (readMaybe.(:[])) dat in
-    case mpos of
-        Just [sx,sy,dx,dy] -> Just (MakeMove ((sx,sy),(dx,dy)))
-        _ -> Nothing
--- |Messages sent by the client
-data ClientMsg = MakeMove Move| RandomMove | NewRule String
-
-close :: Connection -> IO ()
-close conn = do
-    sendClose conn (""::Text)
-    forever (receive conn)
+-- Message handlers
 
 -- |'bracket' doesn't do exactly what I want, but this serves a similar purpose
 handleGameSafely :: (OngoingGame -> IO (Maybe OngoingGame)) -> MVar OngoingGame -> IO ()
@@ -169,7 +144,6 @@ handleGameSafely handler gvar = mask $ \restore -> do
     case r of
         (Just og') -> putMVar gvar og'
         Nothing -> putMVar gvar og
-
 
 handleMove :: Connection -> PlayerNum -> Move -> OngoingGame -> IO (Maybe OngoingGame)
 handleMove conn pn mv og = do
@@ -192,9 +166,6 @@ handleMove conn pn mv og = do
         Continue -> tellAndPut (NewState mv) og'{tinfo = Turn (otherNum pn) 0 0}
                   | otherwise -> err "Not your turn"
       Rule _ -> err "Game is not in progress"
-
-applyEvent :: Event -> OngoingGame -> GameState
-applyEvent e og = foldr ($) (innerRules center) (outerRules: rules og) e (gs og)
 
 handleRule :: Connection -> PlayerNum -> String -> OngoingGame -> IO (Maybe OngoingGame)
 handleRule conn pn codeString og = do
@@ -224,23 +195,39 @@ handleRule conn pn codeString og = do
                             sendInitMsg og''
                             return (Just og'')
 
-fromErr (WontCompile errs) = Prelude.unlines (map frghc errs)
-fromErr e = "weird error: "++ show e
-frghc (GhcError{errMsg=m}) = m
+applyEvent :: Event -> OngoingGame -> GameState
+applyEvent e og = foldr ($) (innerRules center) (outerRules: rules og) e (gs og)
 
-data ExpectedAction = YourMove | YourRule | Wait | WaitRule | Observe
-toChar :: ExpectedAction -> Char
-toChar YourMove = 'm'
-toChar YourRule = 'y'
-toChar Wait = 'w'
-toChar WaitRule = 'u'
-toChar Observe = 'o'
 
--- |Messages sent by the server
-data ServerMsg = Init ExpectedAction GameState -- Start a game (including restart after a rule has been added)
-  | NewState Move ExpectedAction GameState -- 
-  | Attempt Move -- A failed move
-  | Err Text
+-- Message sending functions
+
+sendInitMsg :: OngoingGame -> IO ()
+sendInitMsg = sendActionMsg Init
+
+sendActionMsg :: (ExpectedAction -> GameState -> ServerMsg) -> OngoingGame -> IO ()
+sendActionMsg action og@OG{tinfo=(Turn pn _ _),gs} = do
+    sequence_ (sendMsg (action YourMove gs) <$>  maybe (Leaf Nothing) snd (getPlayers pn og))
+    sequence_ (sendMsg (action Wait gs) <$>  maybe (Leaf Nothing) snd (getPlayers (otherNum pn) og))
+    sequence_ (sendMsg (action Observe gs) <$>  observers og)
+sendActionMsg action og@OG{tinfo=(Rule pn),gs} = do
+    sequence_ (sendMsg (action YourRule gs) <$>  maybe (Leaf Nothing) snd (getPlayers pn og))
+    sequence_ (sendMsg (action WaitRule gs) <$>  maybe (Leaf Nothing) snd (getPlayers (otherNum pn) og))
+    sequence_ (sendMsg (action Observe gs) <$>  observers og)
+
+sendWelcomeMsg :: OngoingGame -> PlayerNum -> Connection -> IO ()
+sendWelcomeMsg OG{tinfo=(Turn pn _ _),gs} pn' conn =
+    sendMsg (Init (if pn==pn' then YourMove else Wait) gs) conn
+sendWelcomeMsg OG{tinfo=(Rule pn),gs} pn' conn =
+    sendMsg (Init (if pn==pn' then YourRule else WaitRule) gs) conn
+
+addObserver :: Connection -> OngoingGame -> (OngoingGame, Int)
+addObserver conn og@OG{observers=os} = let (t',n) = add conn os in (og{observers=t'} , n)
+
+removeOnClose :: Connection -> Int -> MVar OngoingGame -> IO ()
+removeOnClose conn n gvar = forever (receive conn) `finally` do
+    og@OG{observers=os} <- takeMVar gvar
+    let os' = remove n os
+    putMVar gvar og{observers=os'}
 
 sendMsg :: ServerMsg -> Connection -> IO ()
 sendMsg (Err msg) conn = sendTextData conn (cons 'e' msg)
@@ -248,11 +235,42 @@ sendMsg (Attempt mv) conn = sendTextData conn (pack ('a':moveToString mv))
 sendMsg (NewState mv exp gs) conn = sendTextData conn (pack ('s':toChar exp : moveToString mv ++ drawBoard (board gs)))
 sendMsg (Init exp gs) conn = sendTextData conn (pack ('i':toChar exp : drawBoard (board gs)))
 
+toChar :: ExpectedAction -> Char
+toChar YourMove = 'm'
+toChar YourRule = 'y'
+toChar Wait = 'w'
+toChar WaitRule = 'u'
+toChar Observe = 'o'
+
 moveToString :: Move -> String
 moveToString ((a,b),(c,d)) = [chr | x<- [a,b,c,d], chr <- show x]
 
--- depth, capacity, left, right
+close :: Connection -> IO ()
+close conn = do
+    sendClose conn (""::Text)
+    forever (receive conn)
+
+parseMsg :: String -> Maybe ClientMsg
+parseMsg "random" = Just RandomMove -- acceptable because "andom" is not a valid rule
+parseMsg ('r':code) = Just$ NewRule code
+parseMsg dat =
+    let mpos = mapM (readMaybe.(:[])) dat in
+    case mpos of
+        Just [sx,sy,dx,dy] -> Just (MakeMove ((sx,sy),(dx,dy)))
+        _ -> Nothing
+
+
+fromErr :: InterpreterError -> String
+fromErr (WontCompile errs) = Prelude.unlines (map frghc errs)
+fromErr e = "weird error: "++ show e
+frghc :: GhcError -> String
+frghc GhcError{errMsg=m} = m
+
+
+-- |Data structure for a set to which things may be added(at an unspecified index) or deleted(given the index returned when they were added)
+-- operations have time complexity O(log(n)) where n is the maximum number of items the structure has contained simultaneously
 data Tree a = Branch Int Int (Tree a) (Tree a) | Leaf (Maybe a) deriving (Foldable,Show,Functor)
+--              depth, capacity, left, right
 
 hasSpace :: Tree a -> Bool
 hasSpace (Leaf (Just _)) = False
