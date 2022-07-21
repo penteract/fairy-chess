@@ -136,9 +136,15 @@ unmoved :: MoveDesc
 unmoved (src,dst) gs = readVar ("moved"++show src) gs == 0
 
 trackMoved :: Rule -> Rule -- If a rule causes a piece to move, record that at the destination
-trackMoved r = whether (__ pieceMoved) r (r . when (__ pieceMoved) (withMove (\ (src,dst) -> doBefore (setVar ("moved"++show dst) 1))))
+trackMoved r = whether (__ pieceMoved) r (r . when (__ pieceMoved) (withMove (\ (src,dst) -> doBefore (setVar ("moved"++show dst) 1)))) . clearMoved
+
+clearMoved :: Rule
+clearMoved = when isStart (doBefore $ foldr (.) id [ setVar ("moved"++show pos) 0 | pos <- allPos])
 
 allPos :: [BoardPos]
 allPos = [(file, rank) | file<-[A ..], rank<-[A ..]]
 allMoves :: [Move]
 allMoves = [(p1,p2) | p1 <- allPos, p2 <- allPos]
+
+setInState :: BoardPos -> Square -> GameState -> GameState
+setInState pos sq gs@GS{board} = gs{board=set pos sq board}

@@ -52,6 +52,13 @@ rPawnMoves = trackMoved $
                       (setVar "pawnSkipped" (toInt' (middle m)) . setVar "skippingPawn" (toInt' (snd m)))) -- track double moves
   . setMoves Pawn (nonCapturing ^^&&^^ leaper [(0,1)])
 
+rPromote :: Rule
+rPromote = let pawnToQueen pos gs = case getAt pos gs of
+                 (Occupied col Pawn) -> setInState pos (Occupied col Queen) gs
+                 _ -> gs
+               in
+  doAfter (foldr (.) id [pawnToQueen (file,rank)| rank <- [A,H], file <- [A ..]])
+
 castling :: Rule
 castling = withMove (\ (src,dst) -> withPeekResult (\ peek -> with (__ id) (\ gs -> let 
   delta = toInts dst - toInts src
@@ -73,7 +80,7 @@ rKingMoves = trackMoved $
   . setMoves King (leaper (reflections [(0,1),(1,1)]))
 
 innerRules :: Rule
-innerRules = rKingMoves . rPawnMoves . rKnightMoves . rQueenMoves . rRookMoves . rBishopMoves . rSetLayout. rNoMoveIllegal
+innerRules = rKingMoves . rPromote . rPawnMoves . rKnightMoves . rQueenMoves . rRookMoves . rBishopMoves . rSetLayout. rNoMoveIllegal
 
 outerRules :: Rule
 outerRules = rCheckmate . rNoKingMeansWin
