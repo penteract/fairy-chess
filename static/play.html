@@ -71,7 +71,7 @@ function processMessage(msg){
     }
 }
 
-let conn = new WebSocket("ws://"+window.location.host+"/play"+window.location.search)
+let conn = new WebSocket("ws"+window.location.protocol.substring(4)+"//"+window.location.host+"/play"+window.location.search)
 conn.onmessage = e => processMessage(e.data)
 conn.onopen = function(e) {
     console.log("open",e)
