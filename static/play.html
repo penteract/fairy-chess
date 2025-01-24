@@ -11,10 +11,10 @@
     height: 30px;
     padding: 0px;
 }
-#board tr:nth-child(even) td:nth-child(even), #board tr:nth-child(odd) td:nth-child(odd){
+#board tr:nth-last-child(2n+3) td:nth-child(2n+2), #board tr:nth-last-child(2n+2) td:nth-child(2n+3){
     background-color: burlywood;
 }
-#board tr:nth-child(odd) td:nth-child(even), #board tr:nth-child(even) td:nth-child(odd){
+#board tr:nth-last-child(2n+2) td:nth-child(2n+2), #board tr:nth-last-child(2n+3) td:nth-child(2n+3){
     background-color: goldenrod;
 }
 td.clicked{
@@ -32,6 +32,7 @@ table{
     <div>To invite someone to join or spectate the game, share the url of this page</div>
     <div><table><thead><tr><td>Moves</td><td>Illegal moves</td> </tr></thead></thead><tbody id="moveHistory"></tbody></table></div>
     <script>
+const letters = "ABCDEFGH"
 const table = document.getElementById("board")
 // receiving/displaying
 test = `♜♞♝♛♚♝♞♜
@@ -47,7 +48,7 @@ function tagWith(list,tag){
 }
 function showBoard(b){
     b=b.split("\n").map(x=>x.split(""))
-    table.innerHTML = "<tbody>"+tagWith( b.map(r=>tagWith(r,"td")) ,"tr")+"</tbody>"
+    table.innerHTML = "<tbody>"+tagWith( b.map((r,ix)=>tagWith([letters[7-ix]].concat(r),"td")).concat(tagWith([""].concat(letters.split("")),"td")) ,"tr")+"</tbody>"
 }
 showBoard(test)
 
@@ -94,12 +95,17 @@ function setAction(a){
 }
 
 // sending/input handling
-const letters = "ABCDEFGH"
 function getPos(td){
     const tr = td.parentElement
-    const file = Array(...tr.children).indexOf(td)
+    const file = Array(...tr.children).indexOf(td) - 1
     const rank = 7-Array(...tr.parentElement.children).indexOf(tr)
     return letters[file]+letters[rank]
+}
+function isLabel(td){
+    const tr = td.parentElement
+    const file = Array(...tr.children).indexOf(td) - 1
+    const rank = 7-Array(...tr.parentElement.children).indexOf(tr)
+    return (file<0) || (rank<0)
 }
 
 let clickedCell = null;
@@ -116,7 +122,7 @@ function unsetClickedCell(){
 }
 
 table.onclick = function (e){
-    if(HTMLTableCellElement.prototype.isPrototypeOf(e.target)){
+    if(HTMLTableCellElement.prototype.isPrototypeOf(e.target) && !isLabel(e.target)){
         if (clickedCell===null){
             setClicked(e.target)
         } else {

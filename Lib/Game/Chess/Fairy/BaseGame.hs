@@ -22,9 +22,6 @@ initialLayout =
 doNothing :: Game
 doNothing event gs = gs
 
-changeTurn :: Step
-changeTurn gs = gs{turn=other (turn gs)}
-
 
 -- |The center of a ruleset - the whole game should be (outerRules . playersRules . innerRules) center
 -- changes who's turn it is and sets pieceMoved to False

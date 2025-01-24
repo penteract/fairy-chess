@@ -176,7 +176,8 @@ handleRule conn pn codeString og = do
                | otherwise {-pn==pn'-} -> do
                     let qimps = zip [ "Prelude"
                                     , "Game.Chess.Fairy.Datatypes"
-                                    , "Game.Chess.Fairy.Lib"]
+                                    , "Game.Chess.Fairy.Lib"
+                                    , "Game.Chess.Fairy.Samples"]
                                     (repeat Nothing)
                           ++ map (second Just) [
                             ("Data.Map", "Map"),

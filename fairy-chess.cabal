@@ -21,6 +21,7 @@ library
   exposed-modules:     Game.Chess.Fairy.Datatypes
                       ,Game.Chess.Fairy.BaseGame
                       ,Game.Chess.Fairy.Lib
+                      ,Game.Chess.Fairy.Samples
                       ,Game.Chess.Fairy.Utils
 --  other-extensions:    FlexibleContexts
   build-depends:       base, containers, random

@@ -148,3 +148,6 @@ allMoves = [(p1,p2) | p1 <- allPos, p2 <- allPos]
 
 setInState :: BoardPos -> Square -> GameState -> GameState
 setInState pos sq gs@GS{board} = gs{board=set pos sq board}
+
+changeTurn :: Step
+changeTurn gs = gs{turn=other (turn gs)}
